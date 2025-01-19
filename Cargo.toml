@@ -1,0 +1,12 @@
+[package]
+name = "patternclicker"
+version = "0.1.0"
+edition = "2021"
+
+
+
+[dependencies]
+chrono = "0.4.39"
+enigo = "0.3.0"
+eframe = { version = "0.30", features = ["default"] }
+egui_inbox = "0.7.0"
