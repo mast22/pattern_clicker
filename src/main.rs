@@ -7,27 +7,38 @@ use std::thread;
 
 use eframe::egui;
 
-fn clicker(
-    hour: u32,
-    minute: u32,
-    second: u32,
-    milli: u32,
-    tx: UiInboxSender<Option<DateTime<Local>>>,
-) {
+#[derive(Clone)]
+enum ClickEvent {
+    None,
+    Clicked(DateTime<Local>),
+    ClickSet(DateTime<Local>),
+    Error(String),
+}
+
+fn clicker(hour: u32, minute: u32, second: u32, milli: u32, tx: UiInboxSender<ClickEvent>) {
     let dt = Local::now();
-
-    let mut enigo = Enigo::new(&Settings::default()).unwrap();
-
     let naive_datetime = NaiveDateTime::new(
         NaiveDate::from_ymd_opt(dt.year(), dt.month(), dt.day()).unwrap(),
         NaiveTime::from_hms_milli_opt(hour, minute, second, milli).unwrap(),
     );
     let target_datetime: DateTime<Local> = Local.from_local_datetime(&naive_datetime).unwrap();
+    let _ = tx.send(ClickEvent::ClickSet(target_datetime));
+
+    let mut enigo = Enigo::new(&Settings::default()).unwrap();
 
     loop {
         if Local::now() >= target_datetime {
-            enigo.button(Button::Left, Direction::Click).unwrap();
-            tx.send(Some(Local::now())).ok();
+            let result = enigo.button(Button::Left, Direction::Press);
+
+            match result {
+                Err(err) => {
+                    let _ = tx.send(ClickEvent::Error(err.to_string()));
+                }
+                Ok(_) => {
+                    let _ = tx.send(ClickEvent::Clicked(Local::now())).ok();
+                }
+            }
+
             break;
         }
     }
@@ -35,11 +46,11 @@ fn clicker(
 
 fn main() -> eframe::Result {
     let options = eframe::NativeOptions {
-        viewport: egui::ViewportBuilder::default().with_inner_size([240.0, 160.0]),
+        viewport: egui::ViewportBuilder::default().with_inner_size([300.0, 300.0]),
         ..Default::default()
     };
     let inbox = UiInbox::new();
-    let mut state: Option<DateTime<Local>> = None;
+    let mut state: ClickEvent = ClickEvent::None;
 
     let dt = Local::now();
     let mut set_hour = dt.hour();
@@ -82,16 +93,27 @@ fn main() -> eframe::Result {
                     }
                     ui.end_row();
 
-                    match state {
-                        Some(datetime) => {
+                    match &state {
+                        ClickEvent::Clicked(datetime) => {
                             let formatted = datetime.format("%H:%M:%S%.3f").to_string();
 
-                            ui.label(format!("Выполнен: {:?}", formatted));
+                            ui.label(format!("Выполнен: {formatted}"));
                             ui.end_row();
                         }
-                        None => {
+                        ClickEvent::ClickSet(datetime) => {
+                            let formatted = datetime.format("%H:%M:%S%.3f").to_string();
+                            ui.label(format!("Клик был задан на {formatted}"));
+                            ui.end_row();
+                        }
+                        ClickEvent::None => {
                             ui.label("Клик еще не выполнен");
                             ui.end_row();
+                        }
+                        ClickEvent::Error(err) => {
+                            ui.horizontal_wrapped(|ui| {
+                                ui.label(format!("Ошибка при клике {err}"));
+                                ui.end_row();
+                            });
                         }
                     }
                 });
